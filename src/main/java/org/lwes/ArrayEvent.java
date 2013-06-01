@@ -14,7 +14,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.Arrays;
-import java.util.BitSet;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Enumeration;
@@ -166,7 +165,7 @@ public final class ArrayEvent extends DefaultEvent {
                 final int tokenIndex = getTokenIndexFromFieldIndex(fieldIndex);
                 final FieldType oldType = FieldType.byToken(bytes[tokenIndex]);
                 if (oldType == type && type.isConstantSize()) {
-                    // Modify the value in place, requiring neither shifts nor changes to keyCache.
+                    // Modify the value in place, requiring no shifts.
                     Serializer.serializeValue(type, value, encoding, bytes, tokenIndex + 1);
                     return;
                 }
@@ -296,6 +295,17 @@ public final class ArrayEvent extends DefaultEvent {
         return FieldType.byToken(bytes[tokenIndex]);
     }
 
+    public Object get(byte[] key) {
+      final int fieldIndex = find(key);
+      if (fieldIndex < 0) {
+          return null;
+      }
+
+      final int tokenIndex = getTokenIndexFromFieldIndex(fieldIndex);
+      final FieldType type = FieldType.byToken(bytes[tokenIndex]);
+      return get(type, tokenIndex + 1);
+    }
+
     @Override
     public Object get(String attributeName) {
         final int fieldIndex = find(attributeName);
@@ -389,7 +399,8 @@ public final class ArrayEvent extends DefaultEvent {
                     tempState.incr(1 + keyLength); // field name
                     final FieldType type = FieldType.byToken(bytes[tempState.currentIndex()]);
                     tempState.incr(1); // type token
-                    Deserializer.deserializeValue(tempState, bytes, type, (short) 1);
+                    final int valueLength = getValueByteSize(type, tempState.currentIndex());
+                    tempState.incr(valueLength);
                 }
             }
             if (tempState.currentIndex() > length) {
@@ -402,6 +413,37 @@ public final class ArrayEvent extends DefaultEvent {
             STATS.get(ArrayEventStats.FINDS).increment();
             STATS.get(ArrayEventStats.PARSES).add(count);
         }
+    }
+    
+    private int find(byte[] keyBytes) {
+      int count = 0;
+      try {
+          for (tempState.set(getValueListIndex()); tempState.currentIndex() < length; ) {
+              ++count;
+              final int keyIndex = tempState.currentIndex();
+              final int keyLength = bytes[keyIndex] & 0xff;
+              if (arrayEquals(bytes, keyIndex + 1, keyLength, keyBytes, 0, keyBytes.length)) {
+                  return keyIndex;
+              }
+              else {
+                  // Wrong field.  Skip it, the type token, and the value.
+                  tempState.incr(1 + keyLength); // field name
+                  final FieldType type = FieldType.byToken(bytes[tempState.currentIndex()]);
+                  tempState.incr(1); // type token
+                  final int valueLength = getValueByteSize(type, tempState.currentIndex());
+                  tempState.incr(valueLength);
+              }
+          }
+          if (tempState.currentIndex() > length) {
+              throw new IllegalStateException(
+                      "Overran the end of the byte array: " + tempState.currentIndex() + " " + length);
+          }
+          return -1;
+      }
+      finally {
+          STATS.get(ArrayEventStats.FINDS).increment();
+          STATS.get(ArrayEventStats.PARSES).add(count);
+      }
     }
 
     private int getEventWordLength(int index) {
@@ -417,74 +459,46 @@ public final class ArrayEvent extends DefaultEvent {
     }
 
     public int getValueByteSize(FieldType type, int valueIndex) {
-        switch (type) {
-            case BOOLEAN:
-            case BYTE:
-                return 1;
-            case UINT16:
-            case INT16:
-                return 2;
-            case UINT32:
-            case INT32:
-            case FLOAT:
-            case IPADDR:
-                return 4;
-            case INT64:
-            case UINT64:
-            case DOUBLE:
-                return 8;
-            case STRING:
-                return 2 + deserializeUINT16(valueIndex);
-            case STRING_ARRAY: {
-                int index0 = valueIndex;
-                int count = deserializeUINT16(valueIndex);
-                valueIndex += 2;
-                for (int n = 0; n < count; ++n) {
-                    valueIndex += 2 + deserializeUINT16(valueIndex);
-                }
-                return valueIndex - index0;
-            }
-            case BOOLEAN_ARRAY:
-            case BYTE_ARRAY:
-                return 2 + deserializeUINT16(valueIndex);
-            case INT16_ARRAY:
-            case UINT16_ARRAY:
-                return 2 + deserializeUINT16(valueIndex) * 2;
-            case INT32_ARRAY:
-            case UINT32_ARRAY:
-            case FLOAT_ARRAY:
-            case IP_ADDR_ARRAY:
-                return 2 + deserializeUINT16(valueIndex) * 4;
-            case INT64_ARRAY:
-            case UINT64_ARRAY:
-            case DOUBLE_ARRAY:
-                return 2 + deserializeUINT16(valueIndex) * 8;
-            case NBOOLEAN_ARRAY:
-            case NBYTE_ARRAY:
-            case NDOUBLE_ARRAY:
-            case NFLOAT_ARRAY:
-            case NINT16_ARRAY:
-            case NINT32_ARRAY:
-            case NINT64_ARRAY:
-            case NSTRING_ARRAY:
-            case NUINT16_ARRAY:
-            case NUINT32_ARRAY:
-            case NUINT64_ARRAY:
+        if (type.isConstantSize()) {
+          return type.getConstantSize();
+        }
+        
+        if (type == FieldType.STRING) {
+            return 2 + deserializeUINT16(valueIndex);
+        }
+        
+        if (type.isArray()) {
+            final FieldType componentType = type.getComponentType();
+            if (type.isNullableArray()) {
                 // array_len + bitset_len + bitset + array
                 DeserializerState ds = new DeserializerState();
                 ds.incr(valueIndex+2); // array length
-                BitSet bs = Deserializer.deserializeBitSet(ds, bytes);
+                final int count = Deserializer.deserializeBitSetCount(ds, bytes);
                 if (type.getComponentType().isConstantSize()) {
-                    ds.incr(type.getComponentType().getConstantSize() * bs.cardinality());
+                    ds.incr(type.getComponentType().getConstantSize() * count);
                 } else {
                     // If the field is not constant-width, we must walk it.  If there are N
                     // bits set in the BitSet, consume N objects of the component type.
-                    for (int i=0, n=bs.cardinality(); i<n; i++) {
+                    for (int i=0; i<count; i++) {
                         ds.incr(getValueByteSize(type.getComponentType(), ds.currentIndex()));
                     }
                 }
                 return ds.currentIndex() - valueIndex;
+            } else {
+                if (componentType.isConstantSize()) {
+                    return 2 + deserializeUINT16(valueIndex) * componentType.getConstantSize();
+                } else {
+                    int index0 = valueIndex;
+                    int count = deserializeUINT16(valueIndex);
+                    valueIndex += 2;
+                    for (int n = 0; n < count; ++n) {
+                        valueIndex += getValueByteSize(componentType, valueIndex);
+                    }
+                    return valueIndex - index0;
+                }
+            }
         }
+        
         throw new IllegalStateException("Unrecognized type: " + type);
     }
 
@@ -678,7 +692,10 @@ public final class ArrayEvent extends DefaultEvent {
             // Deserialize name,type eagerly; deserialize value lazily. 
             currentFieldIndex = nextFieldIndex;
             accessorTempState.set(currentFieldIndex);
-            setName(Deserializer.deserializeATTRIBUTEWORD(accessorTempState, bytes));
+            final int length = Deserializer.deserializeUBYTE(accessorTempState, bytes);
+            final int offset = accessorTempState.currentIndex();
+            setNameBytes(bytes, offset, length, encoding);
+            accessorTempState.incr(length);
             setType(FieldType.byToken(Deserializer.deserializeBYTE(accessorTempState, bytes)));
             // Clear any existing value, to indicate that we have not cached it yet.
             setValue(null);
