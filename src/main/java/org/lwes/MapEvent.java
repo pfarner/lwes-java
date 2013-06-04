@@ -371,6 +371,12 @@ public class MapEvent extends DefaultEvent {
             getEventTemplateDB().checkForSize(name, attribute, bt);
         }
 
+        if (ENCODING.equals(attribute) && bt.getType() != FieldType.INT16) {
+            throw new EventSystemException("Attempted to set " + ENCODING + " with type "
+                    + bt.getType() + " when " + FieldType.INT16 +
+                    " is required.");
+        }
+        
         // Remove the existing value, and record the reduction in the serialized size.
         final BaseType oldObject = attributes.remove(attribute);
         if (oldObject != null) {

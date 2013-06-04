@@ -455,7 +455,12 @@ public abstract class DefaultEvent implements Event {
 
     protected static void checkShortStringLength(String string, short encoding, int maxLength)
             throws EventSystemException {
-        final int serializedLength = EncodedString.getBytes(string, Event.ENCODING_STRINGS[encoding]).length;
+        final int serializedLength;
+        try {
+            serializedLength = EncodedString.getBytes(string, Event.ENCODING_STRINGS[encoding]).length;
+        } catch(ArrayIndexOutOfBoundsException e) {
+            throw new IllegalArgumentException("Invalid encoding: "+encoding);
+        }
         if (serializedLength > maxLength) {
             throw new EventSystemException(
                     "String " + string + " was longer than maximum length: " + serializedLength + " > " + maxLength);
