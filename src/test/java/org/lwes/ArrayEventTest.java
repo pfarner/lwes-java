@@ -35,4 +35,12 @@ public final class ArrayEventTest extends EventTest {
         final ArrayEvent trimmedEvent = event.trim(0);
         trimmedEvent.setInt32("overrun", 100);
     }
+    
+    @Test
+    public void fromBytes() {
+        final ArrayEvent event = new ArrayEvent("Event");
+        event.setInt32("x", 100);
+        final ArrayEvent event2 = new ArrayEvent(event.serialize());
+        Assert.assertEquals(event, event2);
+    }
 }
