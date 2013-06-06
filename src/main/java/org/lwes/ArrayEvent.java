@@ -648,33 +648,53 @@ public final class ArrayEvent extends DefaultEvent {
         };
     }
 
-    private final class ArrayEventFieldAccessor extends DefaultFieldAccessor {
-        private transient final DeserializerState accessorTempState = new DeserializerState();
-        private int nextFieldIndex = getValueListIndex(),
+    private final class ArrayEventFieldAccessor implements FieldAccessor {
+        private int                               nextFieldIndex    = getValueListIndex(),
                 currentFieldIndex = Integer.MIN_VALUE,
-                currentValueIndex = Integer.MIN_VALUE;
+                currentValueIndex = Integer.MIN_VALUE,
+                currentNameLength = Integer.MIN_VALUE;
+        private FieldType                         type;
+        private transient Object                  value;
+        
+        public String getName() {
+            return EncodedString.bytesToString(bytes, currentFieldIndex+1, currentNameLength, ENCODING_STRINGS[encoding]);
+        }
+
+        public byte[] getNameBytesArray() {
+            return bytes;
+        }
+
+        public int getNameBytesOffset() {
+            return currentFieldIndex+1;
+        }
+
+        public int getNameBytesLength() {
+            return currentNameLength;
+        }
 
         public void advance() {
             // Deserialize name,type eagerly; deserialize value lazily. 
-            currentFieldIndex = nextFieldIndex;
-            accessorTempState.set(currentFieldIndex);
-            setName(Deserializer.deserializeATTRIBUTEWORD(accessorTempState, bytes));
-            setType(FieldType.byToken(Deserializer.deserializeBYTE(accessorTempState, bytes)));
+            this.currentFieldIndex = nextFieldIndex;
+            this.currentNameLength = deserializeUBYTE(currentFieldIndex);
+            final int tokenIndex = currentFieldIndex+1+currentNameLength;
+            this.type = FieldType.byToken(bytes[tokenIndex]);
             // Clear any existing value, to indicate that we have not cached it yet.
-            setValue(null);
+            this.value = null;
             // Remember where the current value starts.
-            currentValueIndex = accessorTempState.currentIndex();
+            currentValueIndex = tokenIndex + 1;
             // Remember where the next field (or end of event) is.
             nextFieldIndex = currentValueIndex + getValueByteSize(getType(), currentValueIndex);
+            STATS.get(ArrayEventStats.PARSES).increment();
         }
 
-        @Override
+        public FieldType getType() {
+            return type;
+        }
+
         public Object getValue() {
-            Object value = super.getValue();
             if (value == null) {
                 // The value has not been cached yet.  Do so.
                 value = get(getType(), currentValueIndex);
-                setValue(value);
             }
             return value;
         }

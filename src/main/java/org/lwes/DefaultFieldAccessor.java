@@ -4,6 +4,7 @@ import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
+import org.lwes.util.EncodedString;
 
 public class DefaultFieldAccessor implements FieldAccessor {
     private String    name;
@@ -24,6 +25,18 @@ public class DefaultFieldAccessor implements FieldAccessor {
 
     protected void setName(String name) {
         this.name = name;
+    }
+
+    public byte[] getNameBytesArray() {
+        return EncodedString.getBytes(name, Event.ENCODING_STRINGS[Event.DEFAULT_ENCODING]);
+    }
+
+    public int getNameBytesOffset() {
+        return 0;
+    }
+
+    public int getNameBytesLength() {
+        return getNameBytesArray().length;
     }
 
     public FieldType getType() {
