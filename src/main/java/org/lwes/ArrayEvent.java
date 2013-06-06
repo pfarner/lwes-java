@@ -649,6 +649,7 @@ public final class ArrayEvent extends DefaultEvent {
     }
 
     private final class ArrayEventFieldAccessor implements FieldAccessor {
+        private final DeserializerState state = new DeserializerState();
         private int                               nextFieldIndex    = getValueListIndex(),
                 currentFieldIndex = Integer.MIN_VALUE,
                 currentValueIndex = Integer.MIN_VALUE,
@@ -694,7 +695,8 @@ public final class ArrayEvent extends DefaultEvent {
         public Object getValue() {
             if (value == null) {
                 // The value has not been cached yet.  Do so.
-                value = get(getType(), currentValueIndex);
+                state.set(currentValueIndex);
+                value = Deserializer.deserializeValue(state, bytes, type, encoding);
             }
             return value;
         }
