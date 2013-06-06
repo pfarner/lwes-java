@@ -131,7 +131,7 @@ public class ArrayEventPerformanceTest {
         assertEquals(0, stats.get(ArrayEventStats.FINDS).intValue());
 
         final long dt = tmx.getCurrentThreadCpuTime()-t0;
-        LOG.info(String.format("get() unpacked %d fields from %d events averaging %1.1f fields %d times in %f seconds, or %f ns/event, or %f ns/field", 3, NUM_EVENTS, numFields/(double) NUM_EVENTS, NUM_PASSES, dt/1000000000.,
+        LOG.info(String.format("O/E map unpacked %d fields from %d events averaging %1.1f fields %d times in %f seconds, or %f ns/event, or %f ns/field", 3, NUM_EVENTS, numFields/(double) NUM_EVENTS, NUM_PASSES, dt/1000000000.,
                 dt/(double) (NUM_EVENTS*NUM_PASSES), dt/(double) (numFields*NUM_PASSES)));
         final double scaledTime = dt/(numFields*NUM_PASSES*CPU_SCALE);
         final String message = String.format("Scaled CPU time was %f, and was expected to be around %f", scaledTime, OEM_GET_CPU_TIME);
