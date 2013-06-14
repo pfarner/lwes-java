@@ -21,7 +21,7 @@ import static org.junit.Assert.assertTrue;
 
 public class ArrayEventPerformanceTest {
     private static final Log              LOG                 = LogFactory.getLog(ArrayEventPerformanceTest.class);
-    private static final int              NUM_EVENTS          = 100, NUM_PASSES = 10000;
+    private static final int              NUM_EVENTS          = 100, NUM_PASSES = 100000;
     private static double                 CPU_SCALE; // used to reduce CPU-dependent effects
     private static final double           TOLERANCE           = 1.5;
     private ArrayEvent[]                  events;
@@ -32,17 +32,19 @@ public class ArrayEventPerformanceTest {
 
     // Change these values as performance shifts. If ArrayEvent gets faster,
     // lower them. If we are forced to accept it getting slower, lower them.
-    private static final double           DIRECT_GET_CPU_TIME = 14000;
-    private static final double           OEM_GET_CPU_TIME    =  9000;
+    private static final double           DIRECT_GET_CPU_TIME = 600;
+    private static final double           OEM_GET_CPU_TIME    = 400;
 
     @BeforeClass
     public static void beforeClass() {
         tmx = ManagementFactory.getThreadMXBean();
         // Microbenchmark this machine to provide a scale factor
-        // for later performance testing.
-        final String sample = "string of moderate size to check string comparison speed";
-        final String sample2 = sample+" with a difference";
-        final long ct0 = tmx.getCurrentThreadCpuTime(), N = 100000000;
+        // for later performance testing.  Give the strings equal
+        // length and a shared prefix or else the comparison will
+        // be short-circuited.
+        final String sample  = "string of moderate size to check string comparison speed";
+        final String sample2 = "string of moderate size with which to check string speed";
+        final long ct0 = tmx.getCurrentThreadCpuTime(), N = 10000000;
         long num = 0;
         for (long i = 0; i<N; ++i) {
             if (sample.equals(sample2)) ++num;
