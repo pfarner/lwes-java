@@ -32,12 +32,11 @@ import org.lwes.util.EncodedString;
 public final class ArrayEvent extends DefaultEvent {
 
     private static final int SERIALIZED_ENCODING_LENGTH;
+    private static long CREATIONS = 0, COPIES = 0, FINDS = 0, PARSES = 0, SHIFTS = 0, SWAPS = 0;
     private byte[] bytes = new byte[MAX_MESSAGE_SIZE];
     private final DeserializerState tempState = new DeserializerState();
     private int length = 3;
     private short encoding = DEFAULT_ENCODING;
-    private static Map<ArrayEventStats, MutableInt> STATS =
-            new EnumMap<ArrayEventStats, MutableInt>(ArrayEventStats.class);
 
     static {
         byte[] temp = new byte[256];
@@ -53,11 +52,7 @@ public final class ArrayEvent extends DefaultEvent {
     public ArrayEvent() {
         length = getValueListIndex();
         setEncoding(DEFAULT_ENCODING);
-        final MutableInt creations = STATS.get(ArrayEventStats.CREATIONS);
-        final MutableInt deletions = STATS.get(ArrayEventStats.DELETIONS);
-        final MutableInt highwater = STATS.get(ArrayEventStats.HIGHWATER);
-        creations.increment();
-        highwater.setValue(Math.max(highwater.intValue(), creations.intValue() - deletions.intValue()));
+        ++CREATIONS;
     }
 
     public ArrayEvent(String name) throws EventSystemException {
@@ -84,12 +79,6 @@ public final class ArrayEvent extends DefaultEvent {
         System.arraycopy(bytes, 0, this.bytes, 0, length);
         this.length = length;
         this.encoding = encoding;
-    }
-
-    @Override
-    protected void finalize() throws Throwable {
-        super.finalize();
-        STATS.get(ArrayEventStats.DELETIONS).increment();
     }
 
     @Override
@@ -369,7 +358,7 @@ public final class ArrayEvent extends DefaultEvent {
 
     @Override
     public Event copy() {
-        STATS.get(ArrayEventStats.COPIES).increment();
+        ++COPIES;
         return new ArrayEvent(bytes, length, encoding);
     }
 
@@ -400,8 +389,8 @@ public final class ArrayEvent extends DefaultEvent {
             return -1;
         }
         finally {
-            STATS.get(ArrayEventStats.FINDS).increment();
-            STATS.get(ArrayEventStats.PARSES).add(count);
+            ++FINDS;
+            PARSES += count;
         }
     }
 
@@ -466,7 +455,7 @@ public final class ArrayEvent extends DefaultEvent {
      * the first byte of a field or at the end of the serialized event.
      */
     private void shiftTail(int from, int to) {
-        STATS.get(ArrayEventStats.SHIFTS).increment();
+        ++SHIFTS;
         final int move = to - from;
         if (move == 0) {
             return;
@@ -481,7 +470,7 @@ public final class ArrayEvent extends DefaultEvent {
 
     @Override
     public void copyFrom(Event event) {
-        STATS.get(ArrayEventStats.COPIES).increment();
+        ++COPIES;
         reset();
         if (event instanceof ArrayEvent) {
             final ArrayEvent ae = (ArrayEvent) event;
@@ -496,22 +485,32 @@ public final class ArrayEvent extends DefaultEvent {
     }
 
     public static Map<ArrayEventStats, MutableInt> getStats() {
-        return STATS;
+        final Map<ArrayEventStats, MutableInt> map = new EnumMap<ArrayEventStats, MutableInt>(ArrayEventStats.class);
+        map.put(ArrayEventStats.CREATIONS, new MutableInt(CREATIONS));
+        map.put(ArrayEventStats.COPIES, new MutableInt(COPIES));
+        map.put(ArrayEventStats.FINDS, new MutableInt(FINDS));
+        map.put(ArrayEventStats.PARSES, new MutableInt(PARSES));
+        map.put(ArrayEventStats.SHIFTS, new MutableInt(SHIFTS));
+        map.put(ArrayEventStats.SWAPS, new MutableInt(SWAPS));
+        return map;
     }
 
     public static Map<ArrayEventStats, Integer> getStatsSnapshot() {
         final Map<ArrayEventStats, Integer> statsCopy =
             new EnumMap<ArrayEventStats, Integer>(ArrayEventStats.class);
-        for (Entry<ArrayEventStats, MutableInt> entry : STATS.entrySet()) {
+        for (Entry<ArrayEventStats, MutableInt> entry : getStats().entrySet()) {
           statsCopy.put(entry.getKey(), entry.getValue().intValue());
         }
         return statsCopy;
     }
 
     public static void resetStats() {
-        for (ArrayEventStats counter : ArrayEventStats.values()) {
-            STATS.put(counter, new MutableInt());
-        }
+      CREATIONS = 0;
+      COPIES    = 0;
+      FINDS     = 0;
+      PARSES    = 0;
+      SHIFTS    = 0;
+      SWAPS     = 0;
     }
 
     /**
@@ -538,11 +537,11 @@ public final class ArrayEvent extends DefaultEvent {
         event.bytes = tempBytes;
         event.length = tempLength;
         event.encoding = tempEncoding;
-        STATS.get(ArrayEventStats.SWAPS).increment();
+        ++SWAPS;
     }
 
     public static enum ArrayEventStats {
-        CREATIONS, DELETIONS, HIGHWATER, SHIFTS, FINDS, PARSES, COPIES, SWAPS;
+        CREATIONS, SHIFTS, FINDS, PARSES, COPIES, SWAPS;
     }
 
     /**
@@ -685,7 +684,7 @@ public final class ArrayEvent extends DefaultEvent {
             currentValueIndex = tokenIndex + 1;
             // Remember where the next field (or end of event) is.
             nextFieldIndex = currentValueIndex + getValueByteSize(getType(), currentValueIndex);
-            STATS.get(ArrayEventStats.PARSES).increment();
+            ++PARSES;
         }
 
         public FieldType getType() {
